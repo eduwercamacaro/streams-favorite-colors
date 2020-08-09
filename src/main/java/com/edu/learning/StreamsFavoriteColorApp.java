@@ -3,10 +3,7 @@ package com.edu.learning;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.StreamsBuilder;
-import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.Topology;
+import org.apache.kafka.streams.*;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.kstream.Named;
@@ -29,17 +26,24 @@ public class StreamsFavoriteColorApp {
         properties.put(StreamsConfig.APPLICATION_ID_CONFIG, "favorite-colors-app");
         properties.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         properties.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        properties.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, "0");
 
         StreamsBuilder streamsBuilder = new StreamsBuilder();
 
         KStream<String, String> streamSource = streamsBuilder.stream("users-color");
-        KTable<String, Long> count = streamSource.filter((key, value) -> value != null)
+
+        streamSource.filter((key, value) -> value != null)
+                .filter((key, value) -> value.contains(","))
+                .selectKey((key, value) -> value.split(",")[0])
+                .mapValues((readOnlyKey, value) -> value.split(",")[1])
                 .mapValues((readOnlyKey, value) -> value.toUpperCase())
                 .filter((key, value) -> ALLOWED_COLORS.contains(value))
-                .selectKey((key, value) -> value)
-                .groupByKey()
-                .count(Named.as("colors-count"));
-        count.toStream().to("favorite-colors");
+                .to("users-color-with-key");
+
+        streamsBuilder.table("users-color-with-key")
+                .groupBy((key, value) -> new KeyValue<>(value, value))
+                .count(Named.as("favorite-colors")).toStream().to("favorite-colors");
+
         Topology build = streamsBuilder.build();
 
         System.out.println(build.describe());
